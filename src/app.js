@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('./db');
 const auth = require('./auth');
 const shows = require('./shows');
+const reservations = require('./reservations');
 const logger = require('./logger');
 const { HttpError } = require('./errors');
 
@@ -42,6 +43,33 @@ app.post('/shows', auth.requireAdmin, async (req, res) => {
 
 app.get('/shows/:id', async (req, res) => {
   res.json(await shows.getShowState(req.params.id));
+});
+
+// ---------- reservations ----------
+
+// The user always comes from the token (req.userId). Any user_id in the body
+// is simply never read.
+app.post('/shows/:id/reserve', auth.requireUser, async (req, res) => {
+  const { seats, idempotencyKey } = reservations.parseReserveRequest(req.body, req.get('idempotency-key'));
+  const { reservation, replayed } = await reservations.reserveSeats({
+    showId: req.params.id,
+    userId: req.userId,
+    seats,
+    idempotencyKey,
+  });
+
+  // 201 the first time; a replay returns the same body with 200 so it is
+  // never mistaken for a second sale.
+  res.set('Idempotent-Replayed', String(replayed));
+  res.status(replayed ? 200 : 201).json(reservations.toResponse(reservation));
+});
+
+app.post('/reservations/:id/cancel', auth.requireUser, async (req, res) => {
+  const reservation = await reservations.cancelReservation({
+    reservationId: req.params.id,
+    userId: req.userId,
+  });
+  res.json(reservations.toResponse(reservation));
 });
 
 // ---------- errors ----------
