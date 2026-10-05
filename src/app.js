@@ -1,15 +1,38 @@
+const crypto = require('crypto');
 const express = require('express');
+const pinoHttp = require('pino-http');
 const db = require('./db');
 const auth = require('./auth');
 const shows = require('./shows');
 const reservations = require('./reservations');
+const metrics = require('./metrics');
 const logger = require('./logger');
-const { HttpError } = require('./errors');
+const { HttpError, Decline } = require('./errors');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
-// ---------- health ----------
+// One log line per request, tagged with a request id. We reuse the caller's
+// X-Request-Id if they sent one and always echo it back in the response.
+app.use(pinoHttp({
+  logger,
+  genReqId(req, res) {
+    const requestId = req.get('x-request-id') || crypto.randomUUID();
+    res.setHeader('x-request-id', requestId);
+    return requestId;
+  },
+  // req.log lines carry just the request id; the "request completed" line
+  // carries method, url, status and timing. No headers, so no tokens in logs.
+  quietReqLogger: true,
+  serializers: {
+    req: (req) => ({ id: req.id, method: req.method, url: req.url }),
+    res: (res) => ({ statusCode: res.statusCode }),
+  },
+  customLogLevel: (req, res, err) => (err || res.statusCode >= 500 ? 'error' : 'info'),
+}));
+app.use(metrics.trackHttpRequests);
+
+// ---------- health & metrics ----------
 
 // Liveness: the process is up. Never touches the DB.
 app.get('/health/live', (req, res) => {
@@ -27,6 +50,11 @@ app.get('/health/ready', async (req, res) => {
   }
 });
 
+app.get('/metrics', async (req, res) => {
+  res.set('content-type', metrics.registry.contentType);
+  res.send(await metrics.registry.metrics());
+});
+
 // ---------- auth ----------
 
 app.post('/auth/token', (req, res) => {
@@ -38,6 +66,7 @@ app.post('/auth/token', (req, res) => {
 
 app.post('/shows', auth.requireAdmin, async (req, res) => {
   const show = await shows.createShow(req.body);
+  req.log.info({ event: 'show_created', show_id: show.id, total_seats: show.total_seats }, 'show created');
   res.status(201).json(show);
 });
 
@@ -51,12 +80,31 @@ app.get('/shows/:id', async (req, res) => {
 // is simply never read.
 app.post('/shows/:id/reserve', auth.requireUser, async (req, res) => {
   const { seats, idempotencyKey } = reservations.parseReserveRequest(req.body, req.get('idempotency-key'));
-  const { reservation, replayed } = await reservations.reserveSeats({
-    showId: req.params.id,
-    userId: req.userId,
-    seats,
-    idempotencyKey,
-  });
+
+  let result;
+  try {
+    result = await reservations.reserveSeats({
+      showId: req.params.id,
+      userId: req.userId,
+      seats,
+      idempotencyKey,
+    });
+  } catch (err) {
+    if (err instanceof Decline) {
+      metrics.reservationsDeclined.labels(err.reason).inc();
+      req.log.info({ event: 'reservation_declined', reason: err.reason, user_id: req.userId, seats }, 'declined');
+    }
+    throw err;
+  }
+
+  const { reservation, replayed } = result;
+  if (replayed) {
+    metrics.reservationsDeclined.labels('idempotent_replay').inc();
+    req.log.info({ event: 'reservation_replayed', reservation_id: reservation.id, user_id: req.userId }, 'replayed');
+  } else {
+    metrics.reservationsConfirmed.inc();
+    req.log.info({ event: 'reservation_confirmed', reservation_id: reservation.id, user_id: req.userId, seats }, 'confirmed');
+  }
 
   // 201 the first time; a replay returns the same body with 200 so it is
   // never mistaken for a second sale.
@@ -65,10 +113,14 @@ app.post('/shows/:id/reserve', auth.requireUser, async (req, res) => {
 });
 
 app.post('/reservations/:id/cancel', auth.requireUser, async (req, res) => {
-  const reservation = await reservations.cancelReservation({
+  const { reservation, alreadyCancelled } = await reservations.cancelReservation({
     reservationId: req.params.id,
     userId: req.userId,
   });
+  if (!alreadyCancelled) {
+    metrics.reservationsCancelled.inc();
+    req.log.info({ event: 'reservation_cancelled', reservation_id: reservation.id, user_id: req.userId }, 'cancelled');
+  }
   res.json(reservations.toResponse(reservation));
 });
 
@@ -87,7 +139,7 @@ app.use((err, req, res, next) => {
   if (err.type && err.status >= 400 && err.status < 500) {
     return res.status(err.status).json({ error: 'bad_request', message: err.message });
   }
-  logger.error({ err }, 'unhandled error');
+  req.log.error({ err }, 'unhandled error');
   res.status(500).json({ error: 'internal_error' });
 });
 

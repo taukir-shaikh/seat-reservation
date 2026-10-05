@@ -170,6 +170,7 @@ function replayPrevious(previous, showId, seats) {
 // ---------- cancel ----------
 
 // Only the owner can cancel. Cancelling twice is a harmless no-op.
+// Returns { reservation, alreadyCancelled }.
 async function cancelReservation({ reservationId, userId }) {
   if (!isUuid(reservationId)) {
     throw new HttpError(404, 'reservation_not_found', 'reservation not found');
@@ -187,7 +188,7 @@ async function cancelReservation({ reservationId, userId }) {
       throw new HttpError(403, 'forbidden', 'you can only cancel your own reservations');
     }
     if (reservation.status === 'cancelled') {
-      return reservation;
+      return { reservation, alreadyCancelled: true };
     }
 
     // Same lock order as reserve (quota, then seats by seat_no) so a cancel
@@ -217,7 +218,7 @@ async function cancelReservation({ reservationId, userId }) {
        RETURNING *`,
       [reservation.id],
     );
-    return cancelled;
+    return { reservation: cancelled, alreadyCancelled: false };
   });
 }
 
