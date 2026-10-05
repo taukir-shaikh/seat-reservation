@@ -39,11 +39,13 @@ app.get('/health/live', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Readiness: can we actually serve traffic? Fails closed if the DB is down.
+// Readiness: can we actually serve traffic? Fails closed if the DB is down
+// or doesn't answer within 2 seconds.
 app.get('/health/ready', async (req, res) => {
   try {
     if (!db.isMigrated()) throw new Error('schema not ready');
-    await db.pool.query('SELECT 1');
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('database timeout')), 2000));
+    await Promise.race([db.pool.query('SELECT 1'), timeout]);
     res.json({ status: 'ready' });
   } catch (err) {
     res.status(503).json({ status: 'not_ready', error: err.message });
