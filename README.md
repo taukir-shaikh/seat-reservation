@@ -4,8 +4,9 @@ A small JSON API that sells assigned seats for a show and stays correct when tho
 
 Node.js 22 · Express 5 · PostgreSQL 16 · prom-client · pino
 
-- **Live URL:** `<add after deploy>`
-- **Metrics:** `<live URL>/metrics`
+- **Live URL:** https://seat-reservation-chns.onrender.com
+- **Health:** [/health/live](https://seat-reservation-chns.onrender.com/health/live) · [/health/ready](https://seat-reservation-chns.onrender.com/health/ready)
+- **Metrics:** https://seat-reservation-chns.onrender.com/metrics
 - **Design write-up:** [WRITEUP.md](WRITEUP.md)
 
 ## Run it locally
@@ -30,8 +31,8 @@ To point at another database, set the env vars from [.env.example](.env.example)
 ```bash
 ./burst.sh <BASE_URL>                 # or: npm run burst -- <BASE_URL>
 
-# against the deployed service
-ADMIN_KEY=<admin key> ./burst.sh https://<your-service>.onrender.com
+# against the deployed service (admin key shared separately)
+ADMIN_KEY=<admin key> ./burst.sh https://seat-reservation-chns.onrender.com
 ```
 
 It creates a fresh 500-seat show and fires ~20,000 reserve calls (500 in flight at a time). The calls include:
@@ -172,6 +173,15 @@ On Render, logs are under the service's **Logs** tab.
 1. Push this repo to GitHub.
 2. In Render: **New → Blueprint** → pick the repo. [render.yaml](render.yaml) creates the web service (built from the Dockerfile) and a Postgres database, and generates `JWT_SECRET` and `ADMIN_KEY`.
 3. Render uses `/health/ready` as its health check, so a deploy only goes live once the DB is reachable.
+
+The live instance was set up by hand instead, without linking a GitHub account:
+
+- a free Render Postgres (16, Singapore)
+- a free Web Service from the **Public Git Repository** URL, runtime Docker, same region
+- env vars `DATABASE_URL` (the DB's internal URL), `JWT_SECRET`, `ADMIN_KEY`, `DB_POOL_MAX=20`
+- health check path `/health/ready`
+
+Public-repo services don't auto-deploy, so new commits are shipped with **Manual Deploy → Deploy latest commit**.
 
 On boot the service starts listening right away (liveness OK), creates the schema (retrying until the DB is up), and only then reports ready.
 

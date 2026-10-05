@@ -32,6 +32,25 @@ app.use(pinoHttp({
 }));
 app.use(metrics.trackHttpRequests);
 
+// ---------- index ----------
+
+// What a reviewer sees when they open the bare URL.
+app.get('/', (req, res) => {
+  res.json({
+    service: 'seat-reservation',
+    endpoints: [
+      'POST /auth/token',
+      'POST /shows  (x-admin-key)',
+      'GET  /shows/:id',
+      'POST /shows/:id/reserve  (Bearer token)',
+      'POST /reservations/:id/cancel  (Bearer token)',
+      'GET  /health/live',
+      'GET  /health/ready',
+      'GET  /metrics',
+    ],
+  });
+});
+
 // ---------- health & metrics ----------
 
 // Liveness: the process is up. Never touches the DB.
