@@ -60,15 +60,22 @@ async function createShow(body) {
   return getShowState(showId);
 }
 
+// A show's name, price and limit never change after creation, so we keep
+// them in memory and save one query on every reserve call.
+const showCache = new Map();
+
 // The show row without its seats. Throws 404 if it doesn't exist.
 async function findShow(showId) {
   if (!isUuid(showId)) {
     throw new HttpError(404, 'show_not_found', 'show not found');
   }
+  if (showCache.has(showId)) return showCache.get(showId);
+
   const { rows } = await db.pool.query('SELECT * FROM shows WHERE id = $1', [showId]);
   if (rows.length === 0) {
     throw new HttpError(404, 'show_not_found', 'show not found');
   }
+  showCache.set(showId, rows[0]);
   return rows[0];
 }
 
