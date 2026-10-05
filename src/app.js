@@ -1,5 +1,7 @@
 const express = require('express');
 const db = require('./db');
+const auth = require('./auth');
+const shows = require('./shows');
 const logger = require('./logger');
 const { HttpError } = require('./errors');
 
@@ -22,6 +24,24 @@ app.get('/health/ready', async (req, res) => {
   } catch (err) {
     res.status(503).json({ status: 'not_ready', error: err.message });
   }
+});
+
+// ---------- auth ----------
+
+app.post('/auth/token', (req, res) => {
+  const token = auth.issueToken(req.body?.user_id);
+  res.status(201).json({ token, user_id: req.body.user_id });
+});
+
+// ---------- shows ----------
+
+app.post('/shows', auth.requireAdmin, async (req, res) => {
+  const show = await shows.createShow(req.body);
+  res.status(201).json(show);
+});
+
+app.get('/shows/:id', async (req, res) => {
+  res.json(await shows.getShowState(req.params.id));
 });
 
 // ---------- errors ----------
