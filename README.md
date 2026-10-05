@@ -15,13 +15,15 @@ docker compose up --build
 # API on http://localhost:3000, admin key: dev-admin-key
 ```
 
-Without Docker (needs a Postgres you can reach):
+Without Docker for the app (still needs a Postgres). The defaults already point to `postgres://postgres:postgres@localhost:5432/seats`, so with a local Postgres like the one below no config is needed:
 
 ```bash
-cp .env.example .env      # set DATABASE_URL
+docker run -d --name seats-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=seats -p 5432:5432 postgres:16-alpine
 npm install
 npm start
 ```
+
+To point at another database, set the env vars from [.env.example](.env.example) (e.g. `DATABASE_URL`) in your shell before `npm start`.
 
 ## Burst test (one command)
 
