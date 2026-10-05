@@ -1,0 +1,23 @@
+{
+  "name": "seat-reservation",
+  "version": "1.0.0",
+  "description": "Assigned-seat reservation service that stays correct under an on-sale stampede",
+  "main": "src/server.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "burst": "node scripts/burst.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.1",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
+    "prom-client": "^15.1.3"
+  }
+}
