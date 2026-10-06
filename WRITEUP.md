@@ -103,31 +103,48 @@ Every log line has a `reqId`, so a buyer's complaint ("I got an error at 10:00:0
 
 ## 6. AI usage
 
-I used Claude Code (Claude Opus) throughout.
+I used Claude Code (Claude Opus, inside VS Code) for most of this. To be specific about who did what:
 
 **What I directed / decided:**
 
-- **Database.** I considered MySQL, since it's what I use day to day with Laravel, and asked for a comparison. I went with Postgres because:
-  - its free hosting is better for a deploy-graded round
-  - `INSERT ... ON CONFLICT DO UPDATE ... WHERE` lets the per-user limit be a single atomic statement
-  - MySQL's REPEATABLE READ gap locks would make deadlocks (and therefore 5xx) more likely in a burst
-- **Simplicity.** I set the constraint that the code must stay plain and readable enough for me to explain and extend live: no frameworks on top of Express, no ORM, no Redis, one file for the core logic.
-- **Scope.** No GitHub push from the tool; I deploy myself.
+- **The constraints.** I gave it the brief and set three rules:
+  - keep the code plain and readable, so I can explain and extend it myself in the interview (no ORM, no Redis, no extra layers)
+  - don't over-engineer
+  - the tool never pushes to GitHub; I handle the repo and the deploy
+- **The database.** My default would have been MySQL, since that's what I use every day with Laravel. I asked for a comparison before any code was written, and accepted Postgres for three reasons:
+  - better free hosting for a round that grades the deploy
+  - `INSERT ... ON CONFLICT DO UPDATE ... WHERE` makes the per-user limit a single atomic statement
+  - MySQL's REPEATABLE READ gap locks would make deadlocks (and so 5xx) more likely under a burst
+- **The deploy.** I chose not to link my GitHub account to Render. So instead of the blueprint I created the Postgres and the web service by hand from the public repo URL.
+- **What I did myself:**
+  - created the GitHub repo and pushed the commits
+  - set up Render and set the env vars
+  - ran the burst locally, in `docker compose` and against the live URL
+  - recorded the live logs
 
 **What the AI did:**
 
-- wrote the first version of the code, the burst script and these docs
-- proposed the lock-order design (reservation → quota → seats sorted)
-- proposed the lock-free "only says no" pre-check
-- proposed returning 200 (not 201) for replays
+- **Wrote the code, the burst script, the README and this write-up.**
+- **Proposed the core design**, which I reviewed and kept:
+  - the four-step transaction and its lock order (reservation → quota → seats sorted by `seat_no`)
+  - the per-user limit as one guarded upsert
+  - the lock-free pre-check that can only say "no"
+  - returning 200 rather than 201 for idempotent replays
+  - the explicit-cancel model instead of expiring holds
+- **Walked me through the Render setup** step by step. It also caught that I had picked a paid database plan by mistake.
+- **Explained the design back to me.** After the build I had it walk through the request flow and the burst output with me, so the reasoning in this document is something I can defend, not just something I was handed.
 
-**How it was verified:** the burst script runs 20,000 requests against both a local process and the `docker compose` stack, checking every rule in the brief. All checks pass with zero 5xx. Readiness was tested by stopping and by freezing the database container.
+**How it was verified:**
 
-**Things that changed during that testing:**
+- The burst script checks every rule in the brief. It was run with 20,000 requests against a local process and against the `docker compose` stack, and with 2,000 requests against the live Render service. All checks passed with zero 5xx each time.
+- Readiness was tested by stopping and by freezing the database container.
+
+**Things that changed because of that testing:**
 
 - The decline-reason metrics didn't appear until first used, so they are now pre-initialised to 0.
-- Request logs were dumping all headers, so they are now slimmed down and tokens are never logged.
-- A frozen DB would make readiness hang forever, so there is now a 2 s timeout.
+- Request logs were dumping every header, so they are now slimmed down and tokens are never logged.
+- A frozen DB made readiness hang, so it now times out after 2 s.
+- Opening the bare live URL returned a 404, so `/` now lists the endpoints.
 
 ## 7. What I'd do next
 
